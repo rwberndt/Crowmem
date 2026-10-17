@@ -1,12 +1,5 @@
 {
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          { "type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py"] }
-        ]
-      }
-    ],
     "UserPromptSubmit": [
       {
         "hooks": [
@@ -16,7 +9,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": ".*",
+        "matcher": "^(Edit|MultiEdit|Write|NotebookEdit|ApplyPatch|Bash)$",
         "hooks": [
           { "type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py"] }
         ]

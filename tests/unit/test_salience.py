@@ -68,3 +68,7 @@ def test_task_relevance_rises_with_metadata_specificity():
         {"environment": "production", "tool": "prisma", "task": "database_migration", "project": "peach"}
     )
     assert specific > bare
+
+
+def test_code_change_has_enough_future_utility_to_reach_extraction_gate():
+    assert risk_service.compute_future_utility("Changed path resolution", "code_change", {"tool": "Edit"}) >= 0.6

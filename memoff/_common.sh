@@ -8,8 +8,8 @@ CROWMEM_HOME="${CROWMEM_HOME:-$HOME/.crowmem}"
 CROWMEM_ENGINE_DIR="$CROWMEM_HOME/engine"
 CROWMEM_VENV="$CROWMEM_ENGINE_DIR/.venv"
 CROWMEM_PIDFILE="$CROWMEM_HOME/uvicorn.pid"
-CROWMEM_REPO_URL="https://github.com/rwberndt/Crowmem.git"
-CROWMEM_PINNED_COMMIT="PIN_ME"  # keep in sync with memory.yml's version field
+CROWMEM_REPO_URL="${CROWMEM_REPO_URL:-https://github.com/rwberndt/Crowmem.git}"
+CROWMEM_PINNED_COMMIT="${CROWMEM_PINNED_COMMIT:-PIN_ME}"  # keep in sync with memory.yml's version field
 
 # The store the memory system actually uses, shared across one (arm,
 # repeat)'s eight issues -- this is our project_id. Defaults to a fixed

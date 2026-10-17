@@ -113,7 +113,7 @@ def write_injected_context(working_memory: list[dict]) -> None:
 def format_context(working_memory: list[dict]) -> str:
     if not working_memory:
         return ""
-    lines = ["Relevant memory from a goal-conditioned memory system (not the task text itself):"]
+    lines = ["Prior implementation notes from memory. Verify them against the current task; newer requirements take precedence:"]
     for item in working_memory:
         lines.append(f"- {item['content']}")
     return "\n".join(lines)

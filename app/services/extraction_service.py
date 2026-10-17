@@ -34,7 +34,8 @@ def extract_and_store_memories(
     evidence_repo = EvidenceRepository(db)
     usage_repo = UsageLogRepository(db)
 
-    memory_result, memory_usage = extract_memories(episode.content, episode.metadata_)
+    semantic_metadata = {key: value for key, value in episode.metadata_.items() if key != "memory_only"}
+    memory_result, memory_usage = extract_memories(episode.content, semantic_metadata)
     usage_repo.record(episode.project_id, "extract_memories", memory_usage)
 
     memories: list[Memory] = []
@@ -46,17 +47,20 @@ def extract_and_store_memories(
             for candidate in memory_result.memories
         ]
 
-    belief_result, belief_usage = extract_belief_candidates(episode.content, episode.metadata_)
-    usage_repo.record(episode.project_id, "extract_belief_candidates", belief_usage)
-
     beliefs: list[Belief] = []
-    if belief_result.beliefs:
-        belief_repo = BeliefRepository(db)
-        for candidate in belief_result.beliefs:
-            belief, relation_usage = resolve_belief_candidate(belief_repo, evidence_repo, episode, candidate)
-            beliefs.append(belief)
-            if relation_usage is not None:
-                usage_repo.record(episode.project_id, "classify_belief_relation", relation_usage)
+    # Coding-agent tool observations feed the memory channel used by /recall.
+    # They do not need the separate belief extraction call on every tool use.
+    if not episode.metadata_.get("memory_only", False):
+        belief_result, belief_usage = extract_belief_candidates(episode.content, semantic_metadata)
+        usage_repo.record(episode.project_id, "extract_belief_candidates", belief_usage)
+
+        if belief_result.beliefs:
+            belief_repo = BeliefRepository(db)
+            for candidate in belief_result.beliefs:
+                belief, relation_usage = resolve_belief_candidate(belief_repo, evidence_repo, episode, candidate)
+                beliefs.append(belief)
+                if relation_usage is not None:
+                    usage_repo.record(episode.project_id, "classify_belief_relation", relation_usage)
 
     db.commit()
     return memories, beliefs

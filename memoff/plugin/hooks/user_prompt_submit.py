@@ -11,7 +11,7 @@ import _client as c  # noqa: E402
 
 def main() -> None:
     stdin = c.read_stdin_json()
-    user_input = stdin.get("user_input", "")
+    user_input = stdin.get("prompt", stdin.get("user_input", ""))
     store = c.store_name()
 
     result = c.recall(query=user_input, project=store, task=c.issue_task())

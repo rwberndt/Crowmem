@@ -59,3 +59,29 @@ def test_ordinary_event_creates_no_memory(client, monkeypatch):
 
     memories = client.get("/memories", params={"project_id": "peach"}).json()
     assert memories == []
+
+
+def test_memory_only_event_skips_belief_extraction(client, monkeypatch):
+    calls = []
+
+    def extract_memory(content, metadata):
+        calls.append(metadata)
+        return make_memory_extractor(CANDIDATE)(content, metadata)
+
+    def unexpected_belief_call(*args):
+        raise AssertionError("memory-only events must not call the belief model")
+
+    monkeypatch.setattr(extraction_service, "extract_memories", extract_memory)
+    monkeypatch.setattr(extraction_service, "extract_belief_candidates", unexpected_belief_call)
+    resp = client.post(
+        "/events",
+        json={
+            "content": "Code change in xitkit/services.py: Before: relative_to(Path.cwd()). After: resolve files from the requested directory.",
+            "event_type": "code_change",
+            "project_id": "peach",
+            "metadata": {"tool": "Edit", "file": "migrations.py", "memory_only": True},
+        },
+    )
+    assert resp.status_code == 201
+    assert resp.json()["encoded"] is True
+    assert calls == [{"tool": "Edit", "file": "migrations.py"}]

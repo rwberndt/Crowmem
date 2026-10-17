@@ -1,10 +1,10 @@
 #!/bin/sh
 # Installs Crowmem on a clean Linux container. Idempotent: safe to re-run.
 #
-# UNVERIFIED on the real Mem Off runner image -- written to the documented
-# entrant contract and Debian/Ubuntu conventions, never executed against
-# the actual container. See memoff/README.md.
+# Verified in a clean python:3.14-slim container with a temporary local
+# Crowmem commit. The organisers' full harness image is still untested.
 set -eu
+export DEBIAN_FRONTEND=noninteractive
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/_common.sh"
@@ -12,39 +12,39 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "[crowmem] install.sh starting"
 
 SUDO=""
-if [ "$(id -u)" != "0" ] && command -v sudo >/dev/null 2>&1; then
+if [ "$(id -u)" != "0" ]; then
+  command -v sudo >/dev/null 2>&1 || { echo "[crowmem] ERROR: install requires root or sudo" >&2; exit 1; }
   SUDO="sudo"
 fi
+
+as_postgres() {
+  if [ "$(id -u)" = "0" ]; then
+    runuser -u postgres -- "$@"
+  else
+    sudo -u postgres "$@"
+  fi
+}
 
 mkdir -p "$CROWMEM_HOME"
 
 # --- system packages ---
 if command -v apt-get >/dev/null 2>&1; then
   $SUDO apt-get update -y
-  $SUDO apt-get install -y git build-essential curl postgresql postgresql-contrib postgresql-server-dev-all \
-    python3.12 python3.12-venv \
-    || $SUDO apt-get install -y git build-essential curl postgresql postgresql-contrib postgresql-server-dev-all \
-       python3 python3-venv
+  $SUDO apt-get install -y --no-install-recommends git curl ca-certificates postgresql postgresql-contrib
 else
   echo "[crowmem] WARNING: apt-get not found; assuming git/python3/postgresql are already present" >&2
 fi
 
-PYTHON_BIN="$(command -v python3.12 || command -v python3)"
-echo "[crowmem] using python: $PYTHON_BIN ($("$PYTHON_BIN" --version 2>&1))"
-
 if ! command -v uv >/dev/null 2>&1; then
-  "$PYTHON_BIN" -m pip install --user uv
+  "$(command -v python3)" -m pip install --user uv
   export PATH="$HOME/.local/bin:$PATH"
 fi
 
-# --- pgvector: try the packaged extension, else build from source ---
-if ! $SUDO -u postgres psql -tAc "SELECT 1 FROM pg_available_extensions WHERE name='vector'" 2>/dev/null | grep -q 1; then
-  echo "[crowmem] pgvector package not available; building from source"
-  if [ ! -d "$CROWMEM_HOME/pgvector" ]; then
-    git clone --depth 1 https://github.com/pgvector/pgvector.git "$CROWMEM_HOME/pgvector"
-  fi
-  ( cd "$CROWMEM_HOME/pgvector" && (make clean >/dev/null 2>&1 || true) && make && $SUDO make install )
-fi
+# The runner image uses Python 3.14, while Crowmem currently requires 3.12.
+# uv's managed Python keeps the engine interpreter independent of the runner.
+uv python install 3.12
+PYTHON_BIN="$(uv python find 3.12)"
+echo "[crowmem] using python: $PYTHON_BIN ($("$PYTHON_BIN" --version 2>&1))"
 
 # --- postgres service (best-effort across init systems) ---
 $SUDO service postgresql start 2>/dev/null \
@@ -52,11 +52,27 @@ $SUDO service postgresql start 2>/dev/null \
             "$(pg_lsclusters -h 2>/dev/null | awk 'NR==1{print $2}')" start 2>/dev/null \
   || echo "[crowmem] WARNING: could not confirm postgresql service start; assuming it's already running" >&2
 
+# --- pgvector: prefer the distro package; only compile when unavailable ---
+if ! as_postgres psql -tAc "SELECT 1 FROM pg_available_extensions WHERE name='vector'" 2>/dev/null | grep -q 1; then
+  PG_MAJOR="$(pg_lsclusters -h 2>/dev/null | awk 'NR==1{print $1}')"
+  if [ -n "$PG_MAJOR" ] && apt-cache show "postgresql-${PG_MAJOR}-pgvector" >/dev/null 2>&1; then
+    $SUDO apt-get install -y --no-install-recommends "postgresql-${PG_MAJOR}-pgvector"
+  else
+    echo "[crowmem] pgvector package not available; building from source"
+    $SUDO apt-get install -y --no-install-recommends build-essential postgresql-server-dev-all
+    if [ ! -d "$CROWMEM_HOME/pgvector" ]; then
+      git clone --depth 1 https://github.com/pgvector/pgvector.git "$CROWMEM_HOME/pgvector"
+    fi
+    ( cd "$CROWMEM_HOME/pgvector" && (make clean >/dev/null 2>&1 || true) && make && $SUDO make install )
+  fi
+fi
+
 # --- role + database (idempotent) ---
-$SUDO -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='corvid'" | grep -q 1 \
-  || $SUDO -u postgres psql -c "CREATE ROLE corvid LOGIN PASSWORD 'corvid';"
-$SUDO -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='crowmem_memoff'" | grep -q 1 \
-  || $SUDO -u postgres psql -c "CREATE DATABASE crowmem_memoff OWNER corvid;"
+as_postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='corvid'" | grep -q 1 \
+  || as_postgres psql -c "CREATE ROLE corvid LOGIN PASSWORD 'corvid';"
+as_postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='crowmem_memoff'" | grep -q 1 \
+  || as_postgres psql -c "CREATE DATABASE crowmem_memoff OWNER corvid;"
+as_postgres psql -d crowmem_memoff -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
 # --- pinned engine checkout ---
 if [ ! -d "$CROWMEM_ENGINE_DIR" ]; then

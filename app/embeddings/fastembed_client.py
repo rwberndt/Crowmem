@@ -1,4 +1,5 @@
 from functools import lru_cache
+from threading import Lock
 
 from fastembed import TextEmbedding
 
@@ -8,9 +9,14 @@ _DIMENSION = 384
 
 class FastEmbedClient:
     def __init__(self) -> None:
-        self._model = TextEmbedding(model_name=_MODEL_NAME)
+        self._model: TextEmbedding | None = None
+        self._init_lock = Lock()
 
     def embed(self, text: str) -> list[float]:
+        if self._model is None:
+            with self._init_lock:
+                if self._model is None:
+                    self._model = TextEmbedding(model_name=_MODEL_NAME)
         (vector,) = self._model.embed([text])
         return vector.tolist()
 

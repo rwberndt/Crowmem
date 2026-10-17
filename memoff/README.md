@@ -1,6 +1,6 @@
 # Crowmem — Mem Off adapter
 
-Wraps the [Crowmem](https://github.com/rwberndt/Crowmem) memory engine (a standalone FastAPI service) as a Claude Code plugin + the five entrant-contract scripts, so it can run as a Track 1 entrant in [Mem Off](https://github.com/topoteretes/cognee-hackathons/tree/main/cognee-mem-off-hackathon-YYYY-MM-DD) (no dated event is scheduled yet — the folder name is still a `YYYY-MM-DD` template placeholder — but the harness code inside it (`harness/`, `challenge/`, `examples/`) is real and runnable).
+Wraps the [Crowmem](https://github.com/rwberndt/Crowmem) memory engine (a standalone FastAPI service) as a Claude Code plugin + the five entrant-contract scripts, so it can run as a Track 1 entrant in [Mem Off](https://github.com/topoteretes/cognee-hackathons/tree/main/cognee-mem-off-hackathon-YYYY-MM-DD). The organiser folder still has a `YYYY-MM-DD` placeholder name, but the harness code inside it (`harness/`, `challenge/`, `examples/`) is real.
 
 ## Layout
 
@@ -18,9 +18,8 @@ memoff/
     hooks/
       hooks.json
       _client.py          # shared HTTP client, stdlib-only
-      session_start.py     # prime context before the issue text arrives
-      user_prompt_submit.py  # real goal-conditioned recall on the issue text
-      post_tool_use.py       # every tool call becomes an episode
+      user_prompt_submit.py  # goal-conditioned recall on the actual issue text
+      post_tool_use.py       # selected code edits and explicit tool failures
       stop.py                 # captures the agent's self-reported STATUS line
       session_end.py          # reports the outcome for every recall this issue made
 ```
@@ -34,12 +33,20 @@ memoff/
 | `wipe.sh`, `wipe_check.sh`, `wait.sh` | Verified live against the real running Crowmem service: seeded a project, confirmed `wipe_check` fails non-empty, wiped, confirmed it passes empty. |
 | `receipt.sh` (both the stashed-id and most-recent-retrieval fallback paths) | Verified live against real recall data. |
 | `usage.sh` (since-timestamp tracking across repeated calls) | Verified live: two calls, second call only reports the delta. |
-| All five hook scripts (`session_start.py` … `session_end.py`) | Verified by feeding each one crafted stdin JSON matching the hook schema confirmed from Claude Code's docs (not from running inside an actual session), piped against the live API. Full chain confirmed: a memory's `utility_score`/`successful_use_count` moved after a simulated `SessionStart → UserPromptSubmit → PostToolUse → Stop → SessionEnd` sequence. |
-| `plugin/.claude-plugin/plugin.json`, `plugin/hooks/hooks.json` | Written to the exact schema Claude Code's plugin-components docs show, **not loaded into a real Claude Code session** (`claude --plugin-dir plugin` was never run here). |
-| `install.sh` | **Not run anywhere.** Linux-only (apt/postgresql/pgvector build steps); this session is Windows. Written to documented Debian/Ubuntu conventions and the entrant contract, with explicit fallbacks (package pgvector → build from source; `python3.12` → generic `python3`), but genuinely unverified. |
-| `cognee-report` / `memoff-memory-report` skill integration | **Not implemented at all.** These are organiser-provided skills referenced by the contract; `harness/` doesn't vendor them (they come from the separate `cognee-integrations` plugin), so their actual install/invocation shape is still unknown. |
+| Registered hooks (`UserPromptSubmit`, `PostToolUse`, `Stop`, `SessionEnd`) | The original five-hook plugin ran in a real Claude Code session for public Issue 1 on 2026-10-17: 34 episodes, 5 durable memories, and no context injection on the cold store. The current plugin skips SessionStart's redundant empty-query recall, sends selected code edits and explicit failures, and ignores routine reads and successful shell output. A second local Issue 1 Claude Code run completed with the optimized plugin; see the evidence below. |
+| `plugin/.claude-plugin/plugin.json`, `plugin/hooks/hooks.json` | `claude plugin validate` passed, and `claude --plugin-dir` loaded the hooks in the Issue 1 run on Windows. This has not been repeated in the organiser's Linux image. |
+| `install.sh` | **Passed a clean Linux container test** using `python:3.14-slim`, the current installer, and a temporary local commit of this engine. It installed Python 3.12 via uv, PostgreSQL and the packaged pgvector, ran all migrations, and reached `/health`. The organiser's full harness image remains untested. |
+| `cognee-report` / `memoff-memory-report` skill integration | **Not implemented.** The reporting skill is in the hackathon repository and `cognee-report` comes with the cognee plugin; neither has been installed into this repo for a submission. |
 | `harness/arms/{claude-mem,cognee}` reference entrants | Not read. Worth diffing our `memory.yml`/scripts against these for conventions before a real submission. |
 | The full `memoff run`/`memoff pilot` sequencer, `harness/tests/test_harness.py` | Not run. Would need the harness installed (`cd harness && uv venv && uv pip install -e ".[dev]"`) plus xitkit and Docker (per `harness/Dockerfile`) — not attempted in this session. |
+
+## Local optimization evidence
+
+The original Issue 1 run sent all 34 tool calls to `/events` (15 Bash, 10 Read, 5 Grep, 4 Edit). Five events reached extraction, causing 10 Haiku calls and $0.025841 of memory-system spend. Its later manual Issue 8 recall mostly returned transient test and deprecation notes.
+
+The current hook runs only for edit tools and Bash, and sends an event only for a code edit or an explicitly reported failure. It extracts code changes as a short unified diff and skips the separate belief model call because `/recall` does not return beliefs. In a fresh local probe, one representative path-resolution edit took 4.1 seconds through the hook, cost $0.002624 for one Haiku call, and yielded two memories about absolute paths and deterministic sorting. A manual Issue 8 recall returned both. This is an isolated probe, not a new agent run or an official benchmark comparison.
+
+A later local Issue 1 agent run with the optimized plugin met the Linux visible target (6 failed / 774 passed) in 33 turns. It produced one tool episode, two memories, one Haiku extraction call ($0.002867), and no cold-start injection. Agent reported cost was $0.662285 and combined reported cost $0.665152, compared with $0.670104 combined for the earlier Crowmem run. The new agent changed only `xitkit/services.py` while the earlier agent also added three tests. These are single runs with different agent paths and authentication routes, so the small total-cost difference is not a reliable benchmark delta. A separate Issue 8 recall returned the two path-resolution memories, but no Issue 8 agent was run. The diff formatter was tightened after this completed run to drop whitespace-only hunks; tests cover that final change.
 
 ### Reproducing the manifest/submission check
 
@@ -67,8 +74,8 @@ Hooks never see the private grader's verdict — `SessionEnd`'s payload is just 
 ## Before actually submitting
 
 1. Pin `memory.yml`'s `version` and `_common.sh`'s `CROWMEM_PINNED_COMMIT` to a real Crowmem commit SHA (left as `PIN_ME` during active development since it would go stale every commit).
-2. Run `install.sh` on an actual clean Linux container and fix whatever it gets wrong — it has not been executed anywhere.
-3. Load `plugin/` into a real Claude Code session (`claude --plugin-dir plugin`) and confirm hooks actually fire and inject context as expected — the hook scripts were only tested by hand-feeding them JSON, not by an actual session invoking them.
+2. Run `install.sh` in the organiser's full harness image. A plain `python:3.14-slim` clean install and health check passed, but the full image may differ.
+3. Repeat the optimized plugin run on the organiser's Linux harness and confirm a later issue receives relevant injected context. A local single-edit probe produced a memory and a manual Issue 8 recall retrieved it; no Issue 8 agent or grader was run.
 4. Install and wire in the `cognee-report` and `memoff-memory-report` skills per `CONTRACT.md` point 5/6 — currently entirely missing.
 5. Copy `templates/SUBMISSION.md` into this folder and fill it (team name, handles, links — only you can fill these honestly) — confirmed via `check_submission.py` as the one missing piece on the folder-structure side.
 6. Run the `memoff-memory-report` skill's wrap-up to produce `report/memoff-report.md` + `.json` — `check_submission.py` requires both and checks the JSON carries `type: memoff-memory-report`.

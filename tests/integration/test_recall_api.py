@@ -54,6 +54,26 @@ def test_recall_requires_project_in_goal_state(client):
     assert resp.status_code == 400
 
 
+def test_cold_store_recall_does_not_embed_query(client, fake_embedding_client, monkeypatch):
+    def unexpected_embed(_text):
+        raise AssertionError("cold store recall must not embed a query")
+
+    monkeypatch.setattr(fake_embedding_client, "embed", unexpected_embed)
+    resp = client.post("/recall", json={"query": "long new issue prompt", "goal_state": {"project": "fresh-recall-store"}})
+    assert resp.status_code == 200
+    assert resp.json()["working_memory"] == []
+
+
+def test_empty_query_recalls_by_goal_context(client, monkeypatch):
+    _seed_memory(client, monkeypatch)
+    resp = client.post(
+        "/recall",
+        json={"query": "", "goal_state": {"project": "peach", "environment": "production", "task": "database_migration"}},
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()["working_memory"]) == 1
+
+
 def test_recall_respects_max_memories_bound(client, monkeypatch):
     _seed_memory(client, monkeypatch)
     resp = client.post(

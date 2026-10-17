@@ -57,6 +57,8 @@ LOW_UTILITY_EVENT_TYPES: dict[str, float] = {
     "ordinary_command": 0.1,
 }
 
+CODE_CHANGE_FUTURE_UTILITY = 0.6
+
 
 def _keyword_score(text: str, table: dict[str, float]) -> float:
     lowered = text.lower()
@@ -78,6 +80,8 @@ def compute_surprise(event_type: str, metadata: dict) -> float:
 def compute_future_utility(content: str, event_type: str, metadata: dict) -> float:
     if event_type in LOW_UTILITY_EVENT_TYPES:
         return LOW_UTILITY_EVENT_TYPES[event_type]
+    if event_type == "code_change":
+        return max(CODE_CHANGE_FUTURE_UTILITY, _keyword_score(content, FUTURE_UTILITY_KEYWORDS))
     return _keyword_score(content, FUTURE_UTILITY_KEYWORDS)
 
 

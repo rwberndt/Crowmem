@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from app.models.enums import MemoryType
@@ -18,6 +18,9 @@ class MemoryRepository:
 
     def get(self, memory_id: uuid.UUID) -> Memory | None:
         return self.db.get(Memory, memory_id)
+
+    def has_any(self, project_id: str) -> bool:
+        return bool(self.db.scalar(select(exists().where(Memory.project_id == project_id))))
 
     def find_most_similar(
         self, project_id: str, memory_type: MemoryType, embedding: list[float], limit: int = 1

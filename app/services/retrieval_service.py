@@ -29,13 +29,19 @@ def gather_and_score_candidates(
     memory_repo = MemoryRepository(db)
     association_repo = AssociationRepository(db)
 
+    # A fresh benchmark store has nothing to retrieve. Avoid loading the
+    # embedding model and embedding a long issue prompt on that cold path.
+    if not memory_repo.has_any(project_id):
+        return []
+
     query_embedding = embedding_client.embed(query) if query else []
     goal_pairs = set(goal_state.as_context_pairs())
 
     candidate_ids: dict = {}
 
-    for memory, _distance in memory_repo.semantic_candidates(project_id, query_embedding, SEMANTIC_CANDIDATE_LIMIT):
-        candidate_ids[memory.id] = memory
+    if query_embedding:
+        for memory, _distance in memory_repo.semantic_candidates(project_id, query_embedding, SEMANTIC_CANDIDATE_LIMIT):
+            candidate_ids[memory.id] = memory
 
     matched_ids = association_repo.find_memory_ids_matching(project_id, goal_pairs)
     for memory_id in matched_ids:
