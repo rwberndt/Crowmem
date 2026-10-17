@@ -1,0 +1,66 @@
+# Tunable weights/thresholds for the Corvid memory engine.
+# See corvid_memory_architecture_implementation_guide.md sections 7, 14, 18, 19, 21.
+
+salience:
+  weights:
+    novelty: 0.20
+    future_utility: 0.20
+    task_relevance: 0.20
+    risk: 0.15
+    surprise: 0.10
+    decision_importance: 0.10
+    user_correction: 0.05
+  thresholds:
+    discard: 0.25
+    candidate: 0.60
+    durable: 0.85
+
+activation:
+  weights:
+    semantic_relevance: 0.25
+    context_match: 0.20
+    expected_utility: 0.15
+    strength: 0.10
+    confidence: 0.10
+    risk_relevance: 0.10
+    recency: 0.05
+    historical_success: 0.05
+  diversity_penalty_weight: 0.30
+  recency_half_life_days: 14
+
+working_memory:
+  max_slots: 4
+  max_tokens: 800
+
+reinforcement:
+  deltas:
+    success_used_utility: 0.10
+    success_used_strength: 0.05
+    unused_utility: -0.01
+    failure_used_utility: -0.05
+    confirm_confidence: 0.10
+    correct_confidence: -0.25
+
+decay:
+  base_rate_by_memory_type:
+    fact: 0.05
+    procedural: 0.02
+    preference: 0.03
+    warning: 0.005
+    constraint: 0.002
+    failure: 0.01
+    decision: 0.01
+    environment: 0.02
+    workflow: 0.02
+    pattern: 0.03
+  risk_dampening: 0.8
+  min_strength_floor_protected: 0.4
+  min_strength_floor_default: 0.0
+
+trust_defaults:
+  runtime_observation: 1.00
+  direct_experience: 0.95
+  user_statement: 0.90
+  other_agent: 0.80
+  documentation: 0.75
+  llm_inference: 0.60

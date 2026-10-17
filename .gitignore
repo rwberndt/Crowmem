@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+*.egg-info/
+.ruff_cache/
+uv.lock.bak
+uvicorn_out.log
+uvicorn_err.log
