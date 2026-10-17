@@ -1,0 +1,11 @@
+# USD per million tokens, by model. Used to compute cost_usd for usage
+# reporting (e.g. Mem Off's usage.sh contract). Update when pricing changes
+# or a new model is added to ANTHROPIC_EXTRACTION_MODEL -- unknown models
+# fall back to null cost (unmeasured, never silently zero).
+models:
+  claude-haiku-4-5:
+    input_per_mtok: 1.00
+    output_per_mtok: 5.00
+  claude-sonnet-5:
+    input_per_mtok: 3.00
+    output_per_mtok: 15.00

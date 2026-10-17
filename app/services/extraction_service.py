@@ -10,6 +10,7 @@ from app.repositories.association_repository import AssociationRepository
 from app.repositories.belief_repository import BeliefRepository
 from app.repositories.evidence_repository import EvidenceRepository
 from app.repositories.memory_repository import MemoryRepository
+from app.repositories.usage_log_repository import UsageLogRepository
 from app.services.belief_resolver import resolve_belief_candidate
 from app.services.memory_merge_service import merge_or_create_memory
 
@@ -24,10 +25,18 @@ def extract_and_store_memories(
     The LLM (app.llm.anthropic_client) only proposes candidates; this function,
     memory_merge_service, and belief_resolver decide insert/reinforce/supersede
     — the LLM never writes to the database directly (guide invariant 6).
+
+    Every LLM call made here is logged via UsageLogRepository regardless of
+    whether it produced any candidates -- tokens are spent on the call
+    itself, not on its result (Mem Off-style cost accounting treats
+    unmeasured spend as unknown, never zero).
     """
     evidence_repo = EvidenceRepository(db)
+    usage_repo = UsageLogRepository(db)
 
-    memory_result = extract_memories(episode.content, episode.metadata_)
+    memory_result, memory_usage = extract_memories(episode.content, episode.metadata_)
+    usage_repo.record(episode.project_id, "extract_memories", memory_usage)
+
     memories: list[Memory] = []
     if memory_result.memories:
         memory_repo = MemoryRepository(db)
@@ -37,14 +46,17 @@ def extract_and_store_memories(
             for candidate in memory_result.memories
         ]
 
-    belief_result = extract_belief_candidates(episode.content, episode.metadata_)
+    belief_result, belief_usage = extract_belief_candidates(episode.content, episode.metadata_)
+    usage_repo.record(episode.project_id, "extract_belief_candidates", belief_usage)
+
     beliefs: list[Belief] = []
     if belief_result.beliefs:
         belief_repo = BeliefRepository(db)
-        beliefs = [
-            resolve_belief_candidate(belief_repo, evidence_repo, episode, candidate) for candidate in belief_result.beliefs
-        ]
+        for candidate in belief_result.beliefs:
+            belief, relation_usage = resolve_belief_candidate(belief_repo, evidence_repo, episode, candidate)
+            beliefs.append(belief)
+            if relation_usage is not None:
+                usage_repo.record(episode.project_id, "classify_belief_relation", relation_usage)
 
-    if memories or beliefs:
-        db.commit()
+    db.commit()
     return memories, beliefs

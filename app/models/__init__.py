@@ -12,4 +12,5 @@ from app.models import (  # noqa: F401
     association,
     memory_usage,
     retrieval_log,
+    usage_log,
 )

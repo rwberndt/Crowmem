@@ -28,3 +28,14 @@ class RetrievalRepository:
 
         stmt = select(MemoryUsage).where(MemoryUsage.retrieval_id == retrieval_id)
         return list(self.db.execute(stmt).scalars())
+
+    def list_recent_for_project(self, project_id: str, limit: int = 5) -> list[RetrievalLog]:
+        from sqlalchemy import select
+
+        stmt = (
+            select(RetrievalLog)
+            .where(RetrievalLog.project_id == project_id)
+            .order_by(RetrievalLog.created_at.desc())
+            .limit(limit)
+        )
+        return list(self.db.execute(stmt).scalars())

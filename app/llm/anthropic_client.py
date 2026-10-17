@@ -4,9 +4,15 @@ relation classification.
 Invariant (guide section 35, #6): the LLM never directly mutates memory
 state. Nothing in this module may import app.db, app.repositories, or any
 SQLAlchemy session — it only returns validated Pydantic objects that calling
-services decide how to apply. Malformed/unparseable responses degrade to an
-empty/neutral result rather than raising, so the pipeline never crashes on
-a bad LLM response.
+services decide how to apply. An API error or a malformed structured
+response degrades to an empty/neutral result rather than raising, so the
+pipeline never crashes on a bad LLM response -- but only those two failure
+modes are caught; a real bug in this module is not disguised as "the LLM
+chose not to extract anything."
+
+Every function returns (result, LlmUsage): real token counts, captured
+whenever the API call itself succeeded, even if validation afterward
+failed -- tokens were spent either way.
 """
 
 import json
@@ -17,15 +23,12 @@ import anthropic
 from pydantic import ValidationError
 
 from app.core.config import get_settings
-from app.schemas.extraction import BeliefExtractionResult, BeliefRelationClassification, MemoryExtractionResult
-
-# Only degrade gracefully for failures inherent to calling an LLM (the API
-# errored, or its structured output didn't validate) -- guide invariant 6
-# says a *malformed LLM response* must not crash the pipeline, not that
-# arbitrary programming errors in this module should be hidden as "the LLM
-# chose not to extract anything." A bare `except Exception` here previously
-# masked a real TypeError (bad SDK kwarg) as silent empty results.
-_DEGRADABLE_ERRORS = (anthropic.APIError, ValidationError)
+from app.schemas.extraction import (
+    BeliefExtractionResult,
+    BeliefRelationClassification,
+    LlmUsage,
+    MemoryExtractionResult,
+)
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -121,11 +124,12 @@ def _extract_tool_input(message: anthropic.types.Message, tool_name: str) -> dic
     return None
 
 
-def extract_memories(episode_content: str, metadata: dict) -> MemoryExtractionResult:
+def extract_memories(episode_content: str, metadata: dict) -> tuple[MemoryExtractionResult, LlmUsage]:
     client = get_anthropic_client()
     settings = get_settings()
     system_prompt = _load_prompt("memory_extraction.md")
     user_message = f"Event content:\n{episode_content}\n\nMetadata:\n{json.dumps(metadata)}"
+    zero_usage = LlmUsage(model=settings.anthropic_extraction_model)
 
     try:
         message = client.messages.create(
@@ -136,19 +140,29 @@ def extract_memories(episode_content: str, metadata: dict) -> MemoryExtractionRe
             tools=[_EXTRACT_MEMORIES_TOOL],
             tool_choice={"type": "tool", "name": "extract_memories"},
         )
-        tool_input = _extract_tool_input(message, "extract_memories")
-        if tool_input is None:
-            return MemoryExtractionResult(memories=[])
-        return MemoryExtractionResult.model_validate(tool_input)
-    except _DEGRADABLE_ERRORS:
-        return MemoryExtractionResult(memories=[])
+    except anthropic.APIError:
+        return MemoryExtractionResult(memories=[]), zero_usage
+
+    usage = LlmUsage(
+        model=settings.anthropic_extraction_model,
+        input_tokens=message.usage.input_tokens,
+        output_tokens=message.usage.output_tokens,
+    )
+    tool_input = _extract_tool_input(message, "extract_memories")
+    if tool_input is None:
+        return MemoryExtractionResult(memories=[]), usage
+    try:
+        return MemoryExtractionResult.model_validate(tool_input), usage
+    except ValidationError:
+        return MemoryExtractionResult(memories=[]), usage
 
 
-def extract_belief_candidates(episode_content: str, metadata: dict) -> BeliefExtractionResult:
+def extract_belief_candidates(episode_content: str, metadata: dict) -> tuple[BeliefExtractionResult, LlmUsage]:
     client = get_anthropic_client()
     settings = get_settings()
     system_prompt = _load_prompt("belief_candidate_extraction.md")
     user_message = f"Event content:\n{episode_content}\n\nMetadata:\n{json.dumps(metadata)}"
+    zero_usage = LlmUsage(model=settings.anthropic_extraction_model)
 
     try:
         message = client.messages.create(
@@ -159,17 +173,26 @@ def extract_belief_candidates(episode_content: str, metadata: dict) -> BeliefExt
             tools=[_EXTRACT_BELIEFS_TOOL],
             tool_choice={"type": "tool", "name": "extract_beliefs"},
         )
-        tool_input = _extract_tool_input(message, "extract_beliefs")
-        if tool_input is None:
-            return BeliefExtractionResult(beliefs=[])
-        return BeliefExtractionResult.model_validate(tool_input)
-    except _DEGRADABLE_ERRORS:
-        return BeliefExtractionResult(beliefs=[])
+    except anthropic.APIError:
+        return BeliefExtractionResult(beliefs=[]), zero_usage
+
+    usage = LlmUsage(
+        model=settings.anthropic_extraction_model,
+        input_tokens=message.usage.input_tokens,
+        output_tokens=message.usage.output_tokens,
+    )
+    tool_input = _extract_tool_input(message, "extract_beliefs")
+    if tool_input is None:
+        return BeliefExtractionResult(beliefs=[]), usage
+    try:
+        return BeliefExtractionResult.model_validate(tool_input), usage
+    except ValidationError:
+        return BeliefExtractionResult(beliefs=[]), usage
 
 
 def classify_belief_relation(
     old_subject: str, old_predicate: str, old_object: str, new_object: str
-) -> BeliefRelationClassification:
+) -> tuple[BeliefRelationClassification, LlmUsage]:
     client = get_anthropic_client()
     settings = get_settings()
     system_prompt = _load_prompt("belief_extraction.md")
@@ -177,6 +200,7 @@ def classify_belief_relation(
         f"Existing belief: {old_subject} {old_predicate} {old_object}\n"
         f"New candidate: {old_subject} {old_predicate} {new_object}"
     )
+    zero_usage = LlmUsage(model=settings.anthropic_extraction_model)
 
     try:
         message = client.messages.create(
@@ -187,9 +211,18 @@ def classify_belief_relation(
             tools=[_CLASSIFY_RELATION_TOOL],
             tool_choice={"type": "tool", "name": "classify_belief_relation"},
         )
-        tool_input = _extract_tool_input(message, "classify_belief_relation")
-        if tool_input is None:
-            return BeliefRelationClassification(relation="CONTRADICTS", confidence=0.0, rationale="No tool response")
-        return BeliefRelationClassification.model_validate(tool_input)
-    except _DEGRADABLE_ERRORS:
-        return BeliefRelationClassification(relation="CONTRADICTS", confidence=0.0, rationale="LLM call failed")
+    except anthropic.APIError:
+        return BeliefRelationClassification(relation="CONTRADICTS", confidence=0.0, rationale="LLM call failed"), zero_usage
+
+    usage = LlmUsage(
+        model=settings.anthropic_extraction_model,
+        input_tokens=message.usage.input_tokens,
+        output_tokens=message.usage.output_tokens,
+    )
+    tool_input = _extract_tool_input(message, "classify_belief_relation")
+    if tool_input is None:
+        return BeliefRelationClassification(relation="CONTRADICTS", confidence=0.0, rationale="No tool response"), usage
+    try:
+        return BeliefRelationClassification.model_validate(tool_input), usage
+    except ValidationError:
+        return BeliefRelationClassification(relation="CONTRADICTS", confidence=0.0, rationale="Invalid tool output"), usage

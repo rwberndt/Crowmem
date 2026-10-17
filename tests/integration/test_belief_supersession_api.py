@@ -1,6 +1,6 @@
-from app.schemas.extraction import BeliefCandidate, BeliefRelationClassification
+from app.schemas.extraction import BeliefCandidate
 from app.services import belief_resolver, extraction_service
-from tests.fixtures.fake_llm_client import empty_memory_result, make_belief_extractor
+from tests.fixtures.fake_llm_client import empty_memory_result, make_belief_extractor, make_relation_classifier
 
 
 def test_belief_supersession_end_to_end_via_api(client, monkeypatch):
@@ -17,10 +17,7 @@ def test_belief_supersession_end_to_end_via_api(client, monkeypatch):
         extraction_service, "extract_belief_candidates",
         make_belief_extractor(BeliefCandidate(subject="Peach", predicate="payment_provider", object="Asaas", confidence=0.95)),
     )
-    monkeypatch.setattr(
-        belief_resolver, "classify_belief_relation",
-        lambda *a, **k: BeliefRelationClassification(relation="SUPERSEDES", confidence=0.92, rationale="migrated"),
-    )
+    monkeypatch.setattr(belief_resolver, "classify_belief_relation", make_relation_classifier("SUPERSEDES", confidence=0.92))
     client.post("/events", json={"content": "Migration from Stripe to Asaas completed.", "event_type": "observation", "project_id": "peach"})
 
     active = client.get("/beliefs", params={"subject": "Peach", "predicate": "payment_provider", "status": "active"}).json()

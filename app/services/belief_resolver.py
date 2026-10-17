@@ -5,7 +5,7 @@ from app.models.episode import Episode
 from app.models.evidence import Evidence
 from app.repositories.belief_repository import BeliefRepository
 from app.repositories.evidence_repository import EvidenceRepository
-from app.schemas.extraction import BeliefCandidate
+from app.schemas.extraction import BeliefCandidate, LlmUsage
 
 CONFIDENCE_PENALTY_ON_DISPUTE = 0.2
 
@@ -15,18 +15,24 @@ def resolve_belief_candidate(
     evidence_repo: EvidenceRepository,
     episode: Episode,
     candidate: BeliefCandidate,
-) -> Belief:
+) -> tuple[Belief, LlmUsage | None]:
     """Belief consolidation with temporal supersession (guide section 11).
     Every belief write happens alongside an Evidence row in the same
     transaction (guide invariant 4). The LLM only classifies the relation
     between two existing belief statements -- it never decides the state
     transition itself (guide invariant 6); that's applied deterministically
     below.
+
+    Returns the usage alongside the belief so the caller can log real spend;
+    usage is None when no LLM call was needed (new fact, or an identical
+    restatement short-circuited straight to SUPPORTS).
     """
-    existing = belief_repo.find_active(candidate.subject, candidate.predicate)
+    usage: LlmUsage | None = None
+    existing = belief_repo.find_active(episode.project_id, candidate.subject, candidate.predicate)
 
     if existing is None:
         belief = Belief(
+            project_id=episode.project_id,
             subject=candidate.subject,
             predicate=candidate.predicate,
             object=candidate.object,
@@ -42,7 +48,7 @@ def resolve_belief_candidate(
         belief = existing
 
     else:
-        classification = classify_belief_relation(
+        classification, usage = classify_belief_relation(
             candidate.subject, candidate.predicate, existing.object, candidate.object
         )
 
@@ -51,6 +57,7 @@ def resolve_belief_candidate(
             existing.valid_to = episode.observed_at
 
             new_belief = Belief(
+                project_id=episode.project_id,
                 subject=candidate.subject,
                 predicate=candidate.predicate,
                 object=candidate.object,
@@ -72,6 +79,7 @@ def resolve_belief_candidate(
             existing.confidence = max(0.0, existing.confidence - CONFIDENCE_PENALTY_ON_DISPUTE)
 
             belief = Belief(
+                project_id=episode.project_id,
                 subject=candidate.subject,
                 predicate=candidate.predicate,
                 object=candidate.object,
@@ -90,4 +98,4 @@ def resolve_belief_candidate(
             extraction_confidence=candidate.confidence,
         )
     )
-    return belief
+    return belief, usage

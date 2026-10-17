@@ -15,11 +15,17 @@ class Belief(Base):
 
     Every belief must remain traceable to one or more episodes via Evidence
     (guide invariant 4) — belief_resolver writes Belief + Evidence atomically.
+
+    project_id (added in migration 0003): the guide's own schema has no
+    project scoping on beliefs, but without it two projects sharing a
+    generic subject could leak into each other on recall/wipe -- the same
+    class of bug found and fixed on the association-matching recall channel.
     """
 
     __tablename__ = "beliefs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     subject: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     predicate: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     object: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -33,9 +39,10 @@ class Belief(Base):
         SAEnum(BeliefStatus, name="belief_status"), nullable=False, default=BeliefStatus.active
     )
 
-    # Added in migration 0004 (belief supersession support).
+    # SET NULL, not CASCADE: deleting the newer belief in a project wipe
+    # shouldn't cascade into deleting the older one it superseded.
     superseded_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("beliefs.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("beliefs.id", ondelete="SET NULL"), nullable=True
     )
     relation: Mapped[BeliefRelation | None] = mapped_column(
         SAEnum(BeliefRelation, name="belief_relation"), nullable=True

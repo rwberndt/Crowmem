@@ -16,9 +16,11 @@ class MemoryUsage(Base):
     __tablename__ = "memory_usage"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    memory_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("memories.id"), nullable=False, index=True)
+    memory_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("memories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     retrieval_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("retrieval_log.id"), nullable=False, index=True
+        UUID(as_uuid=True), ForeignKey("retrieval_log.id", ondelete="CASCADE"), nullable=False, index=True
     )
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

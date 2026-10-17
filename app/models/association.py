@@ -15,7 +15,9 @@ class Association(Base):
     __tablename__ = "associations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    memory_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("memories.id"), nullable=False, index=True)
+    memory_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("memories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     value: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)

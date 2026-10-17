@@ -75,6 +75,7 @@ def select_working_memory(
 
 def persist_retrieval(
     retrieval_repo: RetrievalRepository,
+    project_id: str,
     query: str,
     goal_state_dict: dict,
     slots: list[WorkingMemorySlot],
@@ -87,6 +88,7 @@ def persist_retrieval(
     now = datetime.now(timezone.utc)
 
     log = RetrievalLog(
+        project_id=project_id,
         query_text=query,
         goal_state=goal_state_dict,
         returned_memory_ids=[str(slot.memory.id) for slot in slots],

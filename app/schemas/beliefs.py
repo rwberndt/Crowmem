@@ -8,6 +8,7 @@ from app.models.enums import BeliefStatus
 
 class BeliefResponse(BaseModel):
     id: uuid.UUID
+    project_id: str
     subject: str
     predicate: str
     object: str

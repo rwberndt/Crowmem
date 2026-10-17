@@ -3,9 +3,9 @@
 temporal validity) answer different questions about the same history --
 "what do we use now" vs "what did we use before" vs "why did we switch"."""
 
-from app.schemas.extraction import BeliefCandidate, BeliefRelationClassification
+from app.schemas.extraction import BeliefCandidate
 from app.services import belief_resolver, extraction_service
-from tests.fixtures.fake_llm_client import empty_memory_result, make_belief_extractor
+from tests.fixtures.fake_llm_client import empty_memory_result, make_belief_extractor, make_relation_classifier
 
 
 def test_demo_3_current_and_historical_beliefs_both_remain_queryable(client, monkeypatch):
@@ -23,10 +23,7 @@ def test_demo_3_current_and_historical_beliefs_both_remain_queryable(client, mon
         extraction_service, "extract_belief_candidates",
         make_belief_extractor(BeliefCandidate(subject="Peach", predicate="payment_provider", object="Asaas", confidence=0.95)),
     )
-    monkeypatch.setattr(
-        belief_resolver, "classify_belief_relation",
-        lambda *a, **k: BeliefRelationClassification(relation="SUPERSEDES", confidence=0.92, rationale="migration decision"),
-    )
+    monkeypatch.setattr(belief_resolver, "classify_belief_relation", make_relation_classifier("SUPERSEDES", confidence=0.92))
     client.post(
         "/events",
         json={"content": "Decision: migrate from Stripe to Asaas; migration completed.", "event_type": "decision", "project_id": "peach"},
